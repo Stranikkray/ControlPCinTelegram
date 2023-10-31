@@ -4,19 +4,68 @@ using System.Diagnostics;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
-#region User_Parameters
-const string tokenBot = "";//Token bot Telegram
-const int chatIdClient = ; //user chat Id 
-#endregion
-
 #region App_Parameters
 Settings settings = new Settings();
-string versApp = "0.1";
+string versApp = "0.2";
+
+bool codeSend = false;
+int code = -1;
+string ApiBot;
 #endregion
 
 #region TelegramBot_Settings
-var botClient = new TelegramBotClient(tokenBot);
-botClient.StartReceiving(Updating, Error);
+TelegramBotClient botClient = null;
+
+if (settings.tokenBot==null || settings.chatIdClient==-1)
+{
+RestartConnectToApi:
+    Console.Clear();
+    Console.Write("ControlPCinTelegram vers:" + versApp);
+    Console.Write("\nThe telegram bot API is not specified.\nSpecify it now:");
+
+    Console.BackgroundColor = ConsoleColor.White;
+    Console.ForegroundColor = ConsoleColor.Black;        
+    ApiBot = Console.ReadLine();
+    Console.ResetColor();
+
+    if (ApiBot != null)
+    {
+        botClient = new TelegramBotClient(ApiBot);
+        botClient.StartReceiving(СonfirmationOfTheUserChatId, Error);
+        
+        Random rnd = new Random();
+        code = rnd.Next(100000, 999999);        
+
+        Console.WriteLine("Confirmation code: " + code);
+
+        if (!await TimerForConfirmationChatId())
+        {
+            Console.Clear();
+            goto RestartConnectToApi;
+        }
+    }
+    else
+    {
+        Console.Write("\n");
+        goto RestartConnectToApi;
+    }
+    botClient.StartReceiving(Updating, Error);
+    Console.ReadLine();
+}
+
+async Task<bool> TimerForConfirmationChatId()
+{
+    int seconds = 60 * 5;
+    while (seconds>0)
+    {
+        await Task.Delay(1000);
+        seconds--;
+        Console.Write("\r{0}:{1:00} ", seconds/60, seconds%60);
+        if (settings.chatIdClient!=-1 && !string.IsNullOrEmpty(settings.tokenBot))
+            return true;        
+    }    
+    return false;
+}
 #endregion
 
 #region Main
@@ -30,7 +79,7 @@ if (!settings.isFirstSettings)
 var handle = NativeMethods.GetConsoleWindow();
 NativeMethods.ShowWindow(handle, NativeMethods.SW_HIDE);
 
-await botClient.SendTextMessageAsync(chatIdClient, $"I am back\nVersApp: {versApp}"); // send message about start system
+await botClient.SendTextMessageAsync(settings.chatIdClient, $"I am back\nVersApp: {versApp}"); // send message about start system
 Console.ReadLine();
 #endregion
 
@@ -38,7 +87,7 @@ Console.ReadLine();
 async Task Updating(ITelegramBotClient client, Update update, CancellationToken token)
 {
     var message = update.Message;
-    if (chatIdClient == message.Chat.Id)
+    if (settings.chatIdClient == message.Chat.Id)
     {
         if (message.Text != null)
         {
@@ -77,11 +126,22 @@ async Task Updating(ITelegramBotClient client, Update update, CancellationToken 
             }
         }
     }
-    else await client.SendTextMessageAsync(message.Chat.Id, $"You chat Id: {message.Chat.Id}");
-    
+    else await client.SendTextMessageAsync(message.Chat.Id, $"You chat Id: {message.Chat.Id}");    
 }
+async Task СonfirmationOfTheUserChatId(ITelegramBotClient client, Update update, CancellationToken token)
+{
+    var message = update.Message;
 
-Task Error(ITelegramBotClient client, Exception exception, CancellationToken token) => client.SendTextMessageAsync(chatIdClient, exception.ToString());//throw new NotImplementedException();
+    if (Convert.ToInt32(message.Text) == code)
+    {
+        settings.chatIdClient = (int)message.Chat.Id;
+        settings.tokenBot = ApiBot;
+        await client.SendTextMessageAsync(message.Chat.Id, "The code is correct!");
+    }
+    else
+        await client.SendTextMessageAsync(message.Chat.Id, "The code is not correct");
+}
+Task Error(ITelegramBotClient client, Exception exception, CancellationToken token) => client.SendTextMessageAsync(settings.chatIdClient, exception.ToString());
 #endregion
 
 #region WorkWithProcesses
@@ -125,7 +185,7 @@ async void AddAutoStart() // Добавление программы в авто
     catch (Exception ex)
     {
         settings.isAutoStart = false;
-        await botClient.SendTextMessageAsync(chatIdClient, "Error add autostart");
+        await botClient.SendTextMessageAsync(settings.chatIdClient, "Error add autostart");
     }
     finally
     {
